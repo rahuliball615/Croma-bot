@@ -22,13 +22,6 @@ PRODUCTS = [
         "target_price": 50000,
         "notify_on_stock": True,
     },
-    # Amazon/Flipkart add karne ke liye neeche wala format use kar:
-    # {
-    #     "name": "iPhone 17 Pro 256GB",
-    #     "url": "https://www.amazon.in/dp/XXXXXXX",
-    #     "target_price": 120000,
-    #     "notify_on_stock": True,
-    # },
 ]
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
@@ -73,7 +66,6 @@ def parse_croma(html):
     if not r["in_stock"]:
         if soup.select_one('button[class*="addToCart"], button[class*="pdpAddToCart"]'):
             r["in_stock"] = True
-    # Bank offers
     for el in soup.find_all(string=re.compile(r"Bank Offer|Flat ₹|Get ₹|Cashback", re.I)):
         t = " ".join(el.strip().split())[:160]
         if t and t not in r["offers"]:
@@ -164,8 +156,14 @@ def fetch(url):
 
 def load_state():
     if STATE_FILE.exists():
-        try: return json.loads(STATE_FILE.read_text())
-        except Exception: pass
+        try:
+            data = json.loads(STATE_FILE.read_text())
+            if not isinstance(data, dict) or "products" not in data:
+                # purana format ya corrupt — fresh start
+                return {"products": {}, "last_run": None}
+            return data
+        except Exception:
+            pass
     return {"products": {}, "last_run": None}
 
 def save_state(state):
@@ -292,13 +290,15 @@ def main():
         for p in PRODUCTS
     )
 
-    # Throttle: normal mode every 10 min, urgent every run
     last = state.get("last_run")
     if last and not urgent_now:
-        delta = (now - datetime.fromisoformat(last)).total_seconds()
-        if delta < 9 * 60:
-            log(f"[~] Throttled ({int(delta)}s). Skip.")
-            return
+        try:
+            delta = (now - datetime.fromisoformat(last)).total_seconds()
+            if delta < 9 * 60:
+                log(f"[~] Throttled ({int(delta)}s). Skip.")
+                return
+        except Exception:
+            pass
 
     log(f"[*] Urgent mode: {urgent_now}")
 
@@ -309,7 +309,6 @@ def main():
     state["last_run"] = now.isoformat()
     save_state(state)
 
-    # Sunday = graph day
     if now.weekday() == 6:
         for p in PRODUCTS:
             hist = state["products"].get(p["url"], {}).get("history", [])
