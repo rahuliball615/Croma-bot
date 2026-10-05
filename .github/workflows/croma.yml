@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install deps
-        run: pip install requests beautifulsoup4 cloudscraper
+        run: pip install requests beautifulsoup4 cloudscraper matplotlib
 
       - name: Run bot
         env:
