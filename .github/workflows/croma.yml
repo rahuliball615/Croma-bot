@@ -4,6 +4,19 @@ on:
   schedule:
     - cron: "*/15 * * * *"
   workflow_dispatch:
+    inputs:
+      command:
+        description: "Telegram command"
+        required: false
+        default: ""
+      chat_id:
+        description: "Telegram chat id"
+        required: false
+        default: ""
+
+concurrency:
+  group: croma-bot
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -29,6 +42,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TG_COMMAND: ${{ github.event.inputs.command }}
+          TG_CHAT_ID: ${{ github.event.inputs.chat_id }}
         run: python croma_bot.py
 
       - name: Save state
