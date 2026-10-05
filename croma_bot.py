@@ -1,4 +1,4 @@
-# croma_bot.py — v4 with webhook instant commands
+# croma_bot.py — v3 with instant Telegram commands via GitHub dispatch
 import cloudscraper
 from bs4 import BeautifulSoup
 import json, os, re, requests
@@ -26,8 +26,6 @@ SEED_PRODUCTS = [
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-TG_COMMAND = (os.environ.get("TG_COMMAND") or "").strip()
-TG_CHAT_ID = (os.environ.get("TG_CHAT_ID") or "").strip()
 
 STATE_FILE = Path("croma_state.json")
 URGENT_THRESHOLD = 0.05
@@ -41,7 +39,6 @@ SCRAPER = cloudscraper.create_scraper(
 )
 
 # ============ PARSERS ============
-
 def parse_croma(html):
     soup = BeautifulSoup(html, "html.parser")
     r = {"price": None, "in_stock": False, "name": "", "valid": False, "offers": []}
@@ -134,11 +131,7 @@ def parse_flipkart(html):
             r["in_stock"] = True
     return r
 
-PARSERS = {
-    "croma.com": parse_croma,
-    "amazon.in": parse_amazon,
-    "flipkart.com": parse_flipkart,
-}
+PARSERS = {"croma.com": parse_croma, "amazon.in": parse_amazon, "flipkart.com": parse_flipkart}
 
 def get_parser(url):
     for domain, p in PARSERS.items():
@@ -155,6 +148,15 @@ def fetch(url):
     return None
 
 # ============ STATE ============
+def load_state():
+    if STATE_FILE.exists():
+        try:
+            data = json.loads(STATE_FILE.read_text())
+            if not isinstance(data, dict) or "products" not in data:
+                return fresh_state()
+            return data
+        except Exception: pass
+    return fresh_state()
 
 def fresh_state():
     st = {"products": {}, "last_run": None}
@@ -166,17 +168,6 @@ def fresh_state():
             "price": None, "in_stock": False, "history": [], "offers": [],
         }
     return st
-
-def load_state():
-    if STATE_FILE.exists():
-        try:
-            data = json.loads(STATE_FILE.read_text())
-            if not isinstance(data, dict) or "products" not in data:
-                return fresh_state()
-            return data
-        except Exception:
-            pass
-    return fresh_state()
 
 def save_state(state):
     STATE_FILE.write_text(json.dumps(state, indent=2))
@@ -198,17 +189,13 @@ def find_product(state, arg):
     try:
         idx = int(arg)
         for i, url, info in plist:
-            if i == idx:
-                return url, info
-    except ValueError:
-        pass
+            if i == idx: return url, info
+    except ValueError: pass
     for i, url, info in plist:
-        if arg in url:
-            return url, info
+        if arg in url: return url, info
     return None, None
 
 # ============ GRAPH ============
-
 def make_graph(history, name):
     if len(history) < 2: return None
     dates = [h["date"][5:] for h in history]
@@ -226,17 +213,15 @@ def make_graph(history, name):
     buf.seek(0)
     return buf.read()
 
-# ============ TELEGRAM SEND ============
-
+# ============ TELEGRAM ============
 def tg_send_message(msg, chat_id=None):
-    cid = chat_id or TELEGRAM_CHAT_ID
+    cid = str(chat_id) if chat_id else TELEGRAM_CHAT_ID
     if not TELEGRAM_BOT_TOKEN or not cid:
         log("[!] Telegram not configured"); return
     try:
         r = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": cid, "text": msg, "parse_mode": "HTML",
-                  "disable_web_page_preview": True},
+            json={"chat_id": cid, "text": msg, "parse_mode": "HTML", "disable_web_page_preview": True},
             timeout=15,
         )
         log(f"[+] TG msg -> {r.status_code}")
@@ -244,7 +229,7 @@ def tg_send_message(msg, chat_id=None):
         log(f"[!] TG err: {e}")
 
 def tg_send_photo(png_bytes, caption, chat_id=None):
-    cid = chat_id or TELEGRAM_CHAT_ID
+    cid = str(chat_id) if chat_id else TELEGRAM_CHAT_ID
     if not TELEGRAM_BOT_TOKEN or not cid: return
     try:
         r = requests.post(
@@ -257,8 +242,7 @@ def tg_send_photo(png_bytes, caption, chat_id=None):
     except Exception as e:
         log(f"[!] TG photo err: {e}")
 
-# ============ COMMAND HANDLERS ============
-
+# ============ COMMANDS ============
 HELP_TEXT = """<b>Croma Bot — Commands</b>
 
 /list — Sab products aur prices
@@ -272,10 +256,9 @@ HELP_TEXT = """<b>Croma Bot — Commands</b>
 <i>Index</i> /list se milega.
 Products Croma, Amazon.in, Flipkart support karte hain."""
 
-def cmd_list(state):
+def cmd_list(state, chat_id):
     if not state["products"]:
-        tg_send_message("Abhi koi product track nahi ho raha.")
-        return
+        tg_send_message("Abhi koi product track nahi ho raha.", chat_id); return
     lines = ["<b>Tracked products</b>"]
     for i, url, info in product_list(state):
         price = info.get("price")
@@ -286,101 +269,78 @@ def cmd_list(state):
         lines.append(f"\n<b>{i}. {info.get('name','?')[:50]}</b>")
         lines.append(f"{stock} Price: {price_s} | Target: {target_s}")
         lines.append(f"<code>{url}</code>")
-    tg_send_message("\n".join(lines))
+    tg_send_message("\n".join(lines), chat_id)
 
-def cmd_add(state, args):
+def cmd_add(state, args, chat_id):
     if len(args) < 2:
-        tg_send_message("Format: <code>/add &lt;url&gt; &lt;target_price&gt;</code>")
-        return
+        tg_send_message("Format: <code>/add &lt;url&gt; &lt;target&gt;</code>", chat_id); return
     url = args[0]
-    try:
-        target = int(args[1].replace(",", ""))
+    try: target = int(args[1].replace(",", ""))
     except ValueError:
-        tg_send_message("Target price number hona chahiye.")
-        return
+        tg_send_message("Target number hona chahiye.", chat_id); return
     if not any(d in url for d in PARSERS):
-        tg_send_message("Sirf Croma, Amazon.in ya Flipkart URL supported hain.")
-        return
+        tg_send_message("Sirf Croma, Amazon.in ya Flipkart.", chat_id); return
     if url in state["products"]:
-        tg_send_message("Yeh URL pehle se tracked hai.")
-        return
-
-    tg_send_message("⏳ Checking URL...")
+        tg_send_message("Yeh already tracked hai.", chat_id); return
+    tg_send_message("⏳ Checking URL...", chat_id)
     html = fetch(url)
     if not html:
-        tg_send_message("❌ URL se response nahi mila.")
-        return
+        tg_send_message("❌ URL se response nahi mila.", chat_id); return
     parser = get_parser(url)
     info = parser(html)
     if not info.get("valid"):
-        tg_send_message("❌ Valid product page nahi lagta. Croma pe search karke URL copy kar.")
-        return
-
-    name = info.get("name") or "New Product"
+        tg_send_message("❌ Valid product page nahi hai.", chat_id); return
+    name = info.get("name") or url.split("/p/")[-1][:30] or "New Product"
     state["products"][url] = {
-        "name": name[:80],
-        "target_price": target,
-        "notify_on_stock": True,
-        "price": info.get("price"),
-        "in_stock": info.get("in_stock", False),
-        "history": [],
-        "offers": info.get("offers", []),
+        "name": name[:80], "target_price": target, "notify_on_stock": True,
+        "price": info.get("price"), "in_stock": info.get("in_stock", False),
+        "history": [], "offers": info.get("offers", []),
     }
     add_history(state, url, info.get("price"))
     price_s = f"₹{info['price']:,}" if info.get("price") else "—"
-    tg_send_message(f"✅ Added:\n<b>{name[:60]}</b>\nCurrent: {price_s} | Target: ₹{target:,}")
+    tg_send_message(f"✅ Added:\n<b>{name[:60]}</b>\nCurrent: {price_s} | Target: ₹{target:,}", chat_id)
 
-def cmd_remove(state, args):
+def cmd_remove(state, args, chat_id):
     if not args:
-        tg_send_message("Format: <code>/remove &lt;index&gt;</code>")
-        return
+        tg_send_message("Format: <code>/remove &lt;index&gt;</code>", chat_id); return
     url, info = find_product(state, args[0])
     if not url:
-        tg_send_message("Product nahi mila.")
-        return
+        tg_send_message("Nahi mila. /list dekh.", chat_id); return
     name = info.get("name", "?")
     del state["products"][url]
-    tg_send_message(f"🗑️ Removed: <b>{name[:60]}</b>")
+    tg_send_message(f"🗑️ Removed: <b>{name[:60]}</b>", chat_id)
 
-def cmd_target(state, args):
+def cmd_target(state, args, chat_id):
     if len(args) < 2:
-        tg_send_message("Format: <code>/target &lt;index&gt; &lt;price&gt;</code>")
-        return
+        tg_send_message("Format: <code>/target &lt;index&gt; &lt;price&gt;</code>", chat_id); return
     url, info = find_product(state, args[0])
     if not url:
-        tg_send_message("Product nahi mila.")
-        return
-    try:
-        target = int(args[1].replace(",", ""))
+        tg_send_message("Nahi mila.", chat_id); return
+    try: target = int(args[1].replace(",", ""))
     except ValueError:
-        tg_send_message("Price number hona chahiye.")
-        return
+        tg_send_message("Number daal.", chat_id); return
     state["products"][url]["target_price"] = target
-    tg_send_message(f"🎯 Target set: <b>{info.get('name','?')[:60]}</b> → ₹{target:,}")
+    tg_send_message(f"🎯 Target set: <b>{info.get('name','?')[:60]}</b> → ₹{target:,}", chat_id)
 
-def cmd_check(state):
-    # We'll actually run checks in main()
-    tg_send_message("⏱️ Checking now...")
+def cmd_check(state, chat_id):
+    tg_send_message("⏱️ Products check ho rahe hain...", chat_id)
 
-def cmd_graph(state, args):
+def cmd_graph(state, args, chat_id):
     if not args:
-        tg_send_message("Format: <code>/graph &lt;index&gt;</code>")
-        return
+        tg_send_message("Format: <code>/graph &lt;index&gt;</code>", chat_id); return
     url, info = find_product(state, args[0])
     if not url:
-        tg_send_message("Product nahi mila.")
-        return
+        tg_send_message("Nahi mila.", chat_id); return
     hist = info.get("history", [])
     if len(hist) < 2:
-        tg_send_message(f"📊 History abhi {len(hist)} din ki hai. Kam se kam 2 din chahiye.")
-        return
+        tg_send_message(f"📊 History {len(hist)} din ki hai. 2 din chahiye.", chat_id); return
     png = make_graph(hist, info.get("name", "?"))
     if png:
-        tg_send_photo(png, f"📊 <b>{info.get('name','?')[:60]}</b>")
+        tg_send_photo(png, f"📊 <b>{info.get('name','?')[:60]}</b>", chat_id)
 
 def handle_command(text, state, chat_id):
     parts = text.strip().split()
-    if not parts: return None
+    if not parts: return
     cmd = parts[0].lower()
     if "@" in cmd: cmd = cmd.split("@")[0]
     args = parts[1:]
@@ -389,24 +349,21 @@ def handle_command(text, state, chat_id):
     if cmd in ("/start", "/help"):
         tg_send_message(HELP_TEXT, chat_id)
     elif cmd == "/list":
-        cmd_list(state)
+        cmd_list(state, chat_id)
     elif cmd == "/add":
-        cmd_add(state, args)
+        cmd_add(state, args, chat_id)
     elif cmd == "/remove":
-        cmd_remove(state, args)
+        cmd_remove(state, args, chat_id)
     elif cmd == "/target":
-        cmd_target(state, args)
+        cmd_target(state, args, chat_id)
     elif cmd == "/check":
-        cmd_check(state)
-        return "check"
+        cmd_check(state, chat_id)
     elif cmd == "/graph":
-        cmd_graph(state, args)
+        cmd_graph(state, args, chat_id)
     else:
-        tg_send_message(f"Unknown command: <code>{cmd}</code>")
-    return cmd
+        tg_send_message(f"Unknown command: <code>{cmd}</code>\n/help dekh.", chat_id)
 
-# ============ PRODUCT CHECK ============
-
+# ============ CHECK ============
 def is_urgent(info):
     price = info.get("price")
     target = info.get("target_price")
@@ -417,96 +374,74 @@ def check_product(url, info, state):
     name = info.get("name", "?")
     parser = get_parser(url)
     if not parser:
-        log(f"[!] no parser for {url}"); return
-
+        log(f"[!] no parser"); return
     log(f"[*] {name[:50]}")
     html = fetch(url)
-    if not html:
-        log(f"[!] fetch failed"); return
-
+    if not html: return
     parsed = parser(html)
-    if not parsed["valid"]:
-        log(f"[!] invalid page"); return
-
+    if not parsed["valid"]: return
     price = parsed["price"]; in_stock = parsed["in_stock"]
     prev_price = info.get("price"); prev_stock = info.get("in_stock", False)
     offers = parsed.get("offers", [])
-
     log(f"    Rs{price} stock={in_stock} offers={len(offers)}")
     add_history(state, url, price)
-
     if info.get("notify_on_stock") and in_stock and not prev_stock:
         msg = f"🔔 <b>{name}</b>\n✅ Back in stock!\nPrice: ₹{price or 0:,}\n{url}"
-        if offers:
-            msg += "\n\n💳 Offers:\n" + "\n".join(f"• {o}" for o in offers)
+        if offers: msg += "\n\n💳 Offers:\n" + "\n".join(f"• {o}" for o in offers)
         tg_send_message(msg)
-
     if price and prev_price and price < prev_price:
         save = prev_price - price
         tg_send_message(f"🔔 <b>{name}</b>\n📉 Down ₹{save:,}\nWas: ₹{prev_price:,}\nNow: ₹{price:,}\n{url}")
-
     if price and info.get("target_price") and price <= info["target_price"]:
         msg = f"🎯 <b>{name}</b>\nTarget hit! (≤ ₹{info['target_price']:,})\nNow: ₹{price:,}\n{url}"
-        if offers:
-            msg += "\n\n💳 Offers:\n" + "\n".join(f"• {o}" for o in offers)
+        if offers: msg += "\n\n💳 Offers:\n" + "\n".join(f"• {o}" for o in offers)
         tg_send_message(msg)
-
-    info["price"] = price
-    info["in_stock"] = in_stock
-    info["offers"] = offers
-    info["last_checked"] = datetime.now().isoformat()
+    info["price"] = price; info["in_stock"] = in_stock
+    info["offers"] = offers; info["last_checked"] = datetime.now().isoformat()
 
 # ============ MAIN ============
-
 def main():
     log("=" * 40)
     state = load_state()
     now = datetime.now()
 
-    # Did webhook send us a command?
-    had_command = bool(TG_COMMAND)
-    force_check = False
+    # Command mode — instant reply path
+    cmd = (os.environ.get("TELEGRAM_COMMAND") or "").strip()
+    cmd_chat = (os.environ.get("TELEGRAM_COMMAND_CHAT_ID") or "").strip()
+    if cmd:
+        log(f"[cmd mode] '{cmd}' from {cmd_chat}")
+        try:
+            chat_id = int(cmd_chat) if cmd_chat else TELEGRAM_CHAT_ID
+            handle_command(cmd, state, chat_id)
+        except Exception as e:
+            log(f"[!] cmd error: {e}")
+        save_state(state)
+        log("Command done.")
+        return
 
-    if had_command:
-        log(f"[webhook] {TG_COMMAND[:60]}")
-        result = handle_command(TG_COMMAND, state, TG_CHAT_ID or TELEGRAM_CHAT_ID)
-        if result == "check":
-            force_check = True
-        else:
-            save_state(state)
-            log("Command handled. Skipping checks.")
-            return
-
-    # Decide if we should run product checks
+    # Normal scheduled mode
     urgent_now = any(is_urgent(info) for info in state["products"].values())
     last = state.get("last_run")
-    if not force_check and last and not urgent_now:
+    if last and not urgent_now:
         try:
             delta = (now - datetime.fromisoformat(last)).total_seconds()
             if delta < 9 * 60:
-                log(f"[~] Throttled ({int(delta)}s).")
-                save_state(state)
-                return
-        except Exception:
-            pass
+                log(f"[~] Throttled ({int(delta)}s). Skip.")
+                save_state(state); return
+        except Exception: pass
 
     log(f"[*] Urgent: {urgent_now} | Products: {len(state['products'])}")
-
     for url, info in list(state["products"].items()):
-        try:
-            check_product(url, info, state)
-        except Exception as e:
-            log(f"[!] {url}: {e}")
+        try: check_product(url, info, state)
+        except Exception as e: log(f"[!] {url}: {e}")
 
     state["last_run"] = now.isoformat()
     save_state(state)
 
     if now.weekday() == 6:
         for url, info in state["products"].items():
-            hist = info.get("history", [])
-            png = make_graph(hist, info.get("name", "?"))
-            if png:
-                tg_send_photo(png, f"📊 <b>{info.get('name','?')[:60]}</b> — 30-day")
+            png = make_graph(info.get("history", []), info.get("name", "?"))
+            if png: tg_send_photo(png, f"📊 <b>{info.get('name','?')[:60]}</b> — 30-day")
 
     log("Done.")
 
