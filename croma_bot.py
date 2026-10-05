@@ -1,5 +1,5 @@
-# croma_bot.py — GitHub Actions version
-import requests
+# croma_bot.py — cloudscraper version
+import cloudscraper
 from bs4 import BeautifulSoup
 import json
 import os
@@ -27,26 +27,19 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 STATE_FILE = Path("croma_state.json")
 
-USER_AGENTS = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) "
-    "Gecko/20100101 Firefox/125.0",
-]
-
 def log(msg):
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}", flush=True)
 
+# cloudscraper session ek hi baar banate hain, reuse karte hain
+SCRAPER = cloudscraper.create_scraper(
+    browser={"browser": "chrome", "platform": "windows", "mobile": False},
+    delay=5,
+)
+
 def fetch(url):
     headers = {
-        "User-Agent": random.choice(USER_AGENTS),
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-IN,en;q=0.9,hi;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
         "Sec-Fetch-Dest": "document",
         "Sec-Fetch-Mode": "navigate",
         "Sec-Fetch-Site": "none",
@@ -54,12 +47,13 @@ def fetch(url):
         "Upgrade-Insecure-Requests": "1",
     }
     try:
-        r = requests.get(url, headers=headers, timeout=25)
+        r = SCRAPER.get(url, headers=headers, timeout=30)
         if r.status_code == 200:
+            log(f"[+] Got page ({len(r.text)} bytes)")
             return r.text
         log(f"[!] HTTP {r.status_code}")
-    except requests.RequestException as e:
-        log(f"[!] Request error: {e}")
+    except Exception as e:
+        log(f"[!] Fetch error: {e}")
     return None
 
 def parse_product(html):
@@ -114,14 +108,19 @@ def notify(msg):
         log("[!] Telegram not configured")
         return
     try:
-        r = requests.post(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
-            timeout=10,
-        )
-        log(f"[+] Telegram sent: {r.status_code}")
-    except requests.RequestException as e:
+        r = requests_post_telegram(msg)
+        log(f"[+] Telegram sent: {r}")
+    except Exception as e:
         log(f"[!] Telegram error: {e}")
+
+def requests_post_telegram(msg):
+    import requests
+    r = requests.post(
+        f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
+        timeout=10,
+    )
+    return r.status_code
 
 def check_product(product, state):
     name = product["name"]
