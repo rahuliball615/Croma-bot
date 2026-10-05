@@ -12,7 +12,7 @@ PRODUCTS = [
     {
         "name": "iPhone 17 Pro 256GB Deep Blue",
         "url": "https://www.croma.com/apple-iphone-17-pro-256gb-deep-blue-/p/317418",
-        "target_price": 120000,
+        "target_price": 999999,
         "notify_on_stock": True,
     },
     {
