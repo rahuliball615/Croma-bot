@@ -5,11 +5,11 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
     inputs:
-      command:
+      telegram_command:
         description: "Telegram command"
         required: false
         default: ""
-      chat_id:
+      telegram_chat_id:
         description: "Telegram chat id"
         required: false
         default: ""
@@ -42,8 +42,8 @@ jobs:
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          TG_COMMAND: ${{ github.event.inputs.command }}
-          TG_CHAT_ID: ${{ github.event.inputs.chat_id }}
+          TELEGRAM_COMMAND: ${{ github.event.inputs.telegram_command }}
+          TELEGRAM_COMMAND_CHAT_ID: ${{ github.event.inputs.telegram_chat_id }}
         run: python croma_bot.py
 
       - name: Save state
