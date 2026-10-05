@@ -1,4 +1,4 @@
-# croma_bot.py — v3 with Telegram commands
+# croma_bot.py — v4 with webhook instant commands
 import cloudscraper
 from bs4 import BeautifulSoup
 import json, os, re, requests
@@ -9,7 +9,6 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-# Seed products — sirf pehli baar state empty hone pe use hoga
 SEED_PRODUCTS = [
     {
         "name": "iPhone 17 Pro 256GB Deep Blue",
@@ -27,6 +26,8 @@ SEED_PRODUCTS = [
 
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+TG_COMMAND = (os.environ.get("TG_COMMAND") or "").strip()
+TG_CHAT_ID = (os.environ.get("TG_CHAT_ID") or "").strip()
 
 STATE_FILE = Path("croma_state.json")
 URGENT_THRESHOLD = 0.05
@@ -155,6 +156,17 @@ def fetch(url):
 
 # ============ STATE ============
 
+def fresh_state():
+    st = {"products": {}, "last_run": None}
+    for p in SEED_PRODUCTS:
+        st["products"][p["url"]] = {
+            "name": p["name"],
+            "target_price": p["target_price"],
+            "notify_on_stock": p["notify_on_stock"],
+            "price": None, "in_stock": False, "history": [], "offers": [],
+        }
+    return st
+
 def load_state():
     if STATE_FILE.exists():
         try:
@@ -165,17 +177,6 @@ def load_state():
         except Exception:
             pass
     return fresh_state()
-
-def fresh_state():
-    st = {"products": {}, "last_run": None, "last_update_id": 0}
-    for p in SEED_PRODUCTS:
-        st["products"][p["url"]] = {
-            "name": p["name"],
-            "target_price": p["target_price"],
-            "notify_on_stock": p["notify_on_stock"],
-            "price": None, "in_stock": False, "history": [], "offers": [],
-        }
-    return st
 
 def save_state(state):
     STATE_FILE.write_text(json.dumps(state, indent=2))
@@ -190,13 +191,10 @@ def add_history(state, url, price):
     rec["history"] = hist[-30:]
 
 def product_list(state):
-    """Returns list of (index, url, info) — 1-indexed"""
     return [(i+1, url, info) for i, (url, info) in enumerate(state["products"].items())]
 
 def find_product(state, arg):
-    """arg = index (1-based) or URL substring. Returns (url, info) or (None, None)."""
     plist = product_list(state)
-    # try index
     try:
         idx = int(arg)
         for i, url, info in plist:
@@ -204,7 +202,6 @@ def find_product(state, arg):
                 return url, info
     except ValueError:
         pass
-    # try url substring match
     for i, url, info in plist:
         if arg in url:
             return url, info
@@ -229,7 +226,7 @@ def make_graph(history, name):
     buf.seek(0)
     return buf.read()
 
-# ============ TELEGRAM ============
+# ============ TELEGRAM SEND ============
 
 def tg_send_message(msg, chat_id=None):
     cid = chat_id or TELEGRAM_CHAT_ID
@@ -260,23 +257,6 @@ def tg_send_photo(png_bytes, caption, chat_id=None):
     except Exception as e:
         log(f"[!] TG photo err: {e}")
 
-def tg_get_updates(offset):
-    if not TELEGRAM_BOT_TOKEN: return []
-    try:
-        r = requests.get(
-            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates",
-            params={"offset": offset, "timeout": 3, "allowed_updates": '["message"]'},
-            timeout=15,
-        )
-        if r.status_code != 200:
-            return []
-        data = r.json()
-        if not data.get("ok"): return []
-        return data.get("result", [])
-    except Exception as e:
-        log(f"[!] getUpdates: {e}")
-        return []
-
 # ============ COMMAND HANDLERS ============
 
 HELP_TEXT = """<b>Croma Bot — Commands</b>
@@ -294,7 +274,7 @@ Products Croma, Amazon.in, Flipkart support karte hain."""
 
 def cmd_list(state):
     if not state["products"]:
-        tg_send_message("Abhi koi product track nahi ho raha.\n\n<i>/add &lt;url&gt; &lt;target&gt;</i> se add kar.")
+        tg_send_message("Abhi koi product track nahi ho raha.")
         return
     lines = ["<b>Tracked products</b>"]
     for i, url, info in product_list(state):
@@ -310,34 +290,33 @@ def cmd_list(state):
 
 def cmd_add(state, args):
     if len(args) < 2:
-        tg_send_message("Format: <code>/add &lt;url&gt; &lt;target_price&gt;</code>\n\nExample:\n<code>/add https://www.croma.com/.../p/123456 99999</code>")
+        tg_send_message("Format: <code>/add &lt;url&gt; &lt;target_price&gt;</code>")
         return
     url = args[0]
     try:
         target = int(args[1].replace(",", ""))
     except ValueError:
-        tg_send_message("Target price number hona chahiye, jaise 99999.")
+        tg_send_message("Target price number hona chahiye.")
         return
     if not any(d in url for d in PARSERS):
         tg_send_message("Sirf Croma, Amazon.in ya Flipkart URL supported hain.")
         return
     if url in state["products"]:
-        tg_send_message("Yeh URL pehle se tracked hai. <i>/list</i> dekh.")
+        tg_send_message("Yeh URL pehle se tracked hai.")
         return
 
-    # Quick verify — fetch and check
     tg_send_message("⏳ Checking URL...")
     html = fetch(url)
     if not html:
-        tg_send_message("❌ URL se response nahi mila. Croma pe confirm kar ki link sahi hai.")
+        tg_send_message("❌ URL se response nahi mila.")
         return
     parser = get_parser(url)
     info = parser(html)
     if not info.get("valid"):
-        tg_send_message("❌ Yeh valid product page nahi lagta. Croma pe search karke product page ka URL copy kar.")
+        tg_send_message("❌ Valid product page nahi lagta. Croma pe search karke URL copy kar.")
         return
 
-    name = info.get("name") or url.split("/p/")[-1][:30] or "New Product"
+    name = info.get("name") or "New Product"
     state["products"][url] = {
         "name": name[:80],
         "target_price": target,
@@ -353,11 +332,11 @@ def cmd_add(state, args):
 
 def cmd_remove(state, args):
     if not args:
-        tg_send_message("Format: <code>/remove &lt;index&gt;</code>\n\n<i>/list</i> se index dekh.")
+        tg_send_message("Format: <code>/remove &lt;index&gt;</code>")
         return
     url, info = find_product(state, args[0])
     if not url:
-        tg_send_message("Product nahi mila. <i>/list</i> dekh.")
+        tg_send_message("Product nahi mila.")
         return
     name = info.get("name", "?")
     del state["products"][url]
@@ -369,7 +348,7 @@ def cmd_target(state, args):
         return
     url, info = find_product(state, args[0])
     if not url:
-        tg_send_message("Product nahi mila. <i>/list</i> dekh.")
+        tg_send_message("Product nahi mila.")
         return
     try:
         target = int(args[1].replace(",", ""))
@@ -380,8 +359,8 @@ def cmd_target(state, args):
     tg_send_message(f"🎯 Target set: <b>{info.get('name','?')[:60]}</b> → ₹{target:,}")
 
 def cmd_check(state):
-    state["last_run"] = None  # force next run to check
-    tg_send_message("⏱️ Next run pe check hoga. 15 min ke andar result.")
+    # We'll actually run checks in main()
+    tg_send_message("⏱️ Checking now...")
 
 def cmd_graph(state, args):
     if not args:
@@ -393,7 +372,7 @@ def cmd_graph(state, args):
         return
     hist = info.get("history", [])
     if len(hist) < 2:
-        tg_send_message(f"📊 History abhi {len(hist)} din ki hai. Kam se kam 2 din chahiye graph ke liye.")
+        tg_send_message(f"📊 History abhi {len(hist)} din ki hai. Kam se kam 2 din chahiye.")
         return
     png = make_graph(hist, info.get("name", "?"))
     if png:
@@ -401,9 +380,8 @@ def cmd_graph(state, args):
 
 def handle_command(text, state, chat_id):
     parts = text.strip().split()
-    if not parts: return
+    if not parts: return None
     cmd = parts[0].lower()
-    # strip @botname for group chats
     if "@" in cmd: cmd = cmd.split("@")[0]
     args = parts[1:]
     log(f"[cmd] {cmd} from chat {chat_id}")
@@ -411,7 +389,6 @@ def handle_command(text, state, chat_id):
     if cmd in ("/start", "/help"):
         tg_send_message(HELP_TEXT, chat_id)
     elif cmd == "/list":
-        # list sends to configured chat, not arbitrary
         cmd_list(state)
     elif cmd == "/add":
         cmd_add(state, args)
@@ -421,27 +398,12 @@ def handle_command(text, state, chat_id):
         cmd_target(state, args)
     elif cmd == "/check":
         cmd_check(state)
+        return "check"
     elif cmd == "/graph":
         cmd_graph(state, args)
     else:
-        tg_send_message(f"Unknown command: <code>{cmd}</code>\n<i>/help</i> dekh.", chat_id)
-
-def process_telegram_updates(state):
-    offset = state.get("last_update_id", 0) + 1
-    updates = tg_get_updates(offset)
-    if not updates:
-        return
-    for upd in updates:
-        state["last_update_id"] = max(state.get("last_update_id", 0), upd.get("update_id", 0))
-        msg = upd.get("message") or {}
-        text = msg.get("text", "")
-        chat_id = msg.get("chat", {}).get("id")
-        if text.startswith("/"):
-            try:
-                handle_command(text, state, chat_id)
-            except Exception as e:
-                log(f"[!] cmd error: {e}")
-                tg_send_message(f"⚠️ Error: {e}", chat_id)
+        tg_send_message(f"Unknown command: <code>{cmd}</code>")
+    return cmd
 
 # ============ PRODUCT CHECK ============
 
@@ -501,20 +463,28 @@ def main():
     state = load_state()
     now = datetime.now()
 
-    # 1. Process incoming Telegram commands
-    try:
-        process_telegram_updates(state)
-    except Exception as e:
-        log(f"[!] updates err: {e}")
+    # Did webhook send us a command?
+    had_command = bool(TG_COMMAND)
+    force_check = False
 
-    # 2. Decide if we need to check now
+    if had_command:
+        log(f"[webhook] {TG_COMMAND[:60]}")
+        result = handle_command(TG_COMMAND, state, TG_CHAT_ID or TELEGRAM_CHAT_ID)
+        if result == "check":
+            force_check = True
+        else:
+            save_state(state)
+            log("Command handled. Skipping checks.")
+            return
+
+    # Decide if we should run product checks
     urgent_now = any(is_urgent(info) for info in state["products"].values())
     last = state.get("last_run")
-    if last and not urgent_now:
+    if not force_check and last and not urgent_now:
         try:
             delta = (now - datetime.fromisoformat(last)).total_seconds()
             if delta < 9 * 60:
-                log(f"[~] Throttled ({int(delta)}s). Skip checks.")
+                log(f"[~] Throttled ({int(delta)}s).")
                 save_state(state)
                 return
         except Exception:
@@ -522,7 +492,6 @@ def main():
 
     log(f"[*] Urgent: {urgent_now} | Products: {len(state['products'])}")
 
-    # 3. Check products
     for url, info in list(state["products"].items()):
         try:
             check_product(url, info, state)
@@ -532,7 +501,6 @@ def main():
     state["last_run"] = now.isoformat()
     save_state(state)
 
-    # 4. Sunday graph
     if now.weekday() == 6:
         for url, info in state["products"].items():
             hist = info.get("history", [])
