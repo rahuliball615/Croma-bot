@@ -1,26 +1,21 @@
 {
-  "https://www.croma.com/apple-iphone-16-pro-128gb-desert-titanium-/p/309265": {
-    "name": "iPhone 16 Pro 128GB",
-    "price": null,
-    "in_stock": false,
-    "last_checked": "2026-10-05T05:59:24.705414"
+  "products": {
+    "https://www.croma.com/apple-iphone-17-pro-256gb-deep-blue-/p/317418": {
+      "name": "iPhone 17 Pro 256GB Deep Blue",
+      "price": 130490,
+      "in_stock": false,
+      "last_checked": "2026-10-05T06:33:41.629940",
+      "history": [],
+      "offers": []
+    },
+    "https://www.croma.com/sony-playstation-5-slim-1tb-ssd-gaming-console-white-/p/305985": {
+      "name": "PS5 Slim 1TB Disc Edition",
+      "price": 54990,
+      "in_stock": false,
+      "last_checked": "2026-10-05T06:33:42.213420",
+      "history": [],
+      "offers": []
+    }
   },
-  "https://www.croma.com/sony-playstation-5-slim-1tb-/p/302312": {
-    "name": "PS5 Slim",
-    "price": null,
-    "in_stock": false,
-    "last_checked": "2026-10-05T05:59:25.427806"
-  },
-  "https://www.croma.com/apple-iphone-17-pro-256gb-deep-blue-/p/317418": {
-    "name": "iPhone 17 Pro 256GB Deep Blue",
-    "price": 130490,
-    "in_stock": false,
-    "last_checked": "2026-10-05T06:14:09.351340"
-  },
-  "https://www.croma.com/sony-playstation-5-slim-1tb-ssd-gaming-console-white-/p/305985": {
-    "name": "PS5 Slim 1TB Disc Edition",
-    "price": 54990,
-    "in_stock": false,
-    "last_checked": "2026-10-05T06:14:10.891895"
-  }
+  "last_run": "2026-10-05T06:33:41.256492"
 }
