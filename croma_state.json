@@ -4,7 +4,7 @@
       "name": "iPhone 17 Pro 256GB Deep Blue",
       "target_price": 120000,
       "notify_on_stock": true,
-      "price": 125990,
+      "price": 126990,
       "in_stock": false,
       "history": [
         {
@@ -45,11 +45,11 @@
         },
         {
           "date": "2026-10-14",
-          "price": 125990
+          "price": 126990
         }
       ],
       "offers": [],
-      "last_checked": "2026-10-14T06:44:05.726536"
+      "last_checked": "2026-10-14T12:25:53.473131"
     },
     "https://www.croma.com/sony-playstation-5-slim-1tb-ssd-gaming-console-white-/p/305985": {
       "name": "PS5 Slim 1TB Disc Edition",
@@ -100,9 +100,9 @@
         }
       ],
       "offers": [],
-      "last_checked": "2026-10-14T06:44:05.996930"
+      "last_checked": "2026-10-14T12:25:53.960189"
     }
   },
-  "last_run": "2026-10-14T06:44:05.388689",
+  "last_run": "2026-10-14T12:25:52.954288",
   "last_update_id": 0
 }
