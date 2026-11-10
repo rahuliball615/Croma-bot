@@ -8,10 +8,6 @@
       "in_stock": false,
       "history": [
         {
-          "date": "2026-10-11",
-          "price": 125990
-        },
-        {
           "date": "2026-10-12",
           "price": 125990
         },
@@ -126,10 +122,14 @@
         {
           "date": "2026-11-09",
           "price": 127990
+        },
+        {
+          "date": "2026-11-10",
+          "price": 127990
         }
       ],
       "offers": [],
-      "last_checked": "2026-11-09T21:15:40.477933"
+      "last_checked": "2026-11-10T03:41:20.491022"
     },
     "https://www.croma.com/sony-playstation-5-slim-1tb-ssd-gaming-console-white-/p/305985": {
       "name": "PS5 Slim 1TB Disc Edition",
@@ -139,10 +139,6 @@
       "in_stock": false,
       "history": [
         {
-          "date": "2026-10-11",
-          "price": 54990
-        },
-        {
           "date": "2026-10-12",
           "price": 54990
         },
@@ -257,12 +253,16 @@
         {
           "date": "2026-11-09",
           "price": 54990
+        },
+        {
+          "date": "2026-11-10",
+          "price": 54990
         }
       ],
       "offers": [],
-      "last_checked": "2026-11-09T21:15:41.030174"
+      "last_checked": "2026-11-10T03:41:20.836293"
     }
   },
-  "last_run": "2026-11-09T21:15:39.869831",
+  "last_run": "2026-11-10T03:41:19.746751",
   "last_update_id": 0
 }
